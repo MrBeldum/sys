@@ -14,6 +14,7 @@
 package mount
 
 /*
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/mount.h>
 */
@@ -37,14 +38,6 @@ func createExportInfo(readOnly bool) C.struct_export_args {
 	return out
 }
 
-func createUfsArgs(device string, readOnly bool) unsafe.Pointer {
-	out := &C.struct_ufs_args{
-		fspec:       C.CString(device),
-		export_info: createExportInfo(readOnly),
-	}
-	return unsafe.Pointer(out)
-}
-
 func mount(device, target, mType string, flag uintptr, data string) error {
 	readOnly := flag&RDONLY != 0
 
@@ -52,7 +45,10 @@ func mount(device, target, mType string, flag uintptr, data string) error {
 
 	switch mType {
 	case "ffs":
-		fsArgs = createUfsArgs(device, readOnly)
+		cdev := C.CString(device)
+		defer C.free(unsafe.Pointer(cdev))
+		args := C.struct_ufs_args{fspec: cdev, export_info: createExportInfo(readOnly)}
+		fsArgs = unsafe.Pointer(&args)
 	default:
 		return &mountError{
 			op:     "mount",
@@ -63,7 +59,11 @@ func mount(device, target, mType string, flag uintptr, data string) error {
 		}
 	}
 
-	if errno := C.mount(C.CString(mType), C.CString(target), C.int(flag), fsArgs); errno != 0 {
+	ctype := C.CString(mType)
+	defer C.free(unsafe.Pointer(ctype))
+	ctarget := C.CString(target)
+	defer C.free(unsafe.Pointer(ctarget))
+	if errno := C.mount(ctype, ctarget, C.int(flag), fsArgs); errno != 0 {
 		return &mountError{
 			op:     "mount",
 			source: device,
